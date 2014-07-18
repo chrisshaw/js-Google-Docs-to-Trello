@@ -1,0 +1,156 @@
+function doGet(e) {
+  var app=UiApp.createApplication();
+  
+  //Grab from Trello API the labels and the members
+  var boards = getFromTrello("");
+  var scroll = app.createScrollPanel().setSize(275, 500);
+  var panel = app.createVerticalPanel();
+  var template = app.createVerticalPanel();
+  
+  template.add(app.createLabel("#trello*list*label*member,member*due"));
+  
+  for(i=0;i<boards.length;i++){
+    boards[i] = getFromTrello("boards/" + boards[i]['id'] + "?fields=name,labelNames&lists=open&list_fields=name&members=all&member_fields=username,fullName");
+    Logger.log(boards[i]);
+    panel.add(app.createLabel(boards[i]['name']).setStyleAttribute('fontSize', '200%'));
+    panel.add(app.createLabel(boards[i]['id']));
+    
+    panel.add(app.createLabel('Lists').setStyleAttribute('fontSize', '150%'));
+    for(j=0;j<boards[i]['lists'].length;j++){
+      panel.add(app.createLabel(boards[i]['lists'][j]['name']).setStyleAttribute('fontSize','125%'));
+      panel.add(app.createLabel(boards[i]['lists'][j]['id']));
+    }
+    
+    panel.add(app.createLabel('Labels').setStyleAttribute('fontSize', '150%'));
+    for(var key in boards[i]["labelNames"]){
+      panel.add(app.createLabel(boards[i]["labelNames"][key]).setStyleAttribute('fontSize','125%'));
+      panel.add(app.createLabel(key));
+    }
+  
+    panel.add(app.createLabel('Members').setStyleAttribute('fontSize', '150%'));
+    for(j=0;j<boards[i]["members"].length;j++){
+      panel.add(app.createLabel(boards[i]['members'][j]['fullName']));
+      panel.add(app.createLabel(boards[i]["members"][j]["id"]));
+    }
+  }
+  
+  scroll.add(panel);
+  app.add(scroll);
+  app.add(template);
+  return app;
+}
+
+function getFromTrello(apiRef){
+  var appKey = "";
+  var appSecret = "";
+  
+  //Call API
+  authenticate();
+
+  var requestData = {
+    "method": "GET",
+    "oAuthServiceName": "trello",
+    "oAuthUseToken": "always"
+  };
+  
+  var url= "https://api.trello.com/1/" + apiRef;
+
+  var result = UrlFetchApp.fetch(url,requestData);
+
+  //Parse response
+  var json = result.getContentText();
+  var data = JSON.parse(json);
+  return data;
+}
+
+function authenticate(){                  
+  var appKey = "";
+  var appSecret = "";
+  
+  //Call API
+  var oAuthConfig = UrlFetchApp.addOAuthService("trello");
+  oAuthConfig.setAccessTokenUrl("https://trello.com/1/OAuthGetAccessToken");
+  oAuthConfig.setRequestTokenUrl("https://trello.com/1/OAuthGetRequestToken");
+  oAuthConfig.setAuthorizationUrl("https://trello.com/1/OAuthAuthorizeToken?expiration=never&scope=read,write");
+
+  // Replace these with the values you get from 
+  // https://trello.com/1/appKey/generate
+  oAuthConfig.setConsumerKey(appKey);
+  oAuthConfig.setConsumerSecret(appSecret);
+}
+
+function sendToTrello(docId){
+
+/* Loops through every instance of a found marker, copies that line,
+** which gets sent to trello.
+** Then removes tag and label from document. */
+  
+  var target = "#trello";
+  
+  var bodyElement = DocumentApp.openById(docId).getBody();
+  var searchResult = bodyElement.findText(target);
+  
+  while (searchResult !==null){
+    var taskLine = searchResult.getElement();
+    var taskLineText = taskLine.asText();
+    
+    /*Send email with line of Text to the Trello emali*/
+    
+    //Get the full tag
+    var startOffset = searchResult.getStartOffset();
+    var endOffset = taskLineText.getText().length;
+    var tagText = taskLineText.getText().substring(startOffset, endOffset);
+    tagText = tagText.trim();
+    
+    //Split the tag into its three parts
+    var tagArray = [];
+    tagArray = tagText.split("*");
+    
+    /*//Get the type of label this task is from the words before the colon
+    
+    /*Cut off the label from the front and the tag from the end to get the subject of the email and clean up the doc*/
+    //Delete the tag
+    taskLineText.deleteText(startOffset-1, endOffset-1);
+    
+    //Get the text that will become the title
+    var cardText = taskLineText.getText();
+
+    var list = tagArray[1];
+    var label = "";
+    var member = "";
+    var due = null;
+
+    if(tagArray.length>1){label = tagArray[2];}
+    if(tagArray.length>2){member = tagArray[3];}
+    if(tagArray.length>3){due = tagArray[4];}
+    
+    createTrelloCard(cardText, list, label, member, due);
+  
+  /*Find the next tag*/
+    searchResult = bodyElement.findText(target, searchResult);
+  }
+}
+  
+  
+  function createTrelloCard(name, list, label, member, due) {
+  
+    var payload = {"name":name, //(required) Valid Values: a string with a length from 1 to 16384
+                   "due": due, //(required) Valid Values: A date, or null
+                   "idList": list, //(required)Valid Values: id of the list that the card should be added to
+                   "labels": label,//(optional)
+                   "idMembers": member, //(optional)Valid Values: A comma-separated list of objectIds, 24-character hex strings
+                  };
+
+    authenticate();
+    // Because payload is a JavaScript object, it will be interpreted as
+    // an HTML form. (We do not need to specify contentType; it will
+    // automatically default to either 'application/x-www-form-urlencoded'
+    // or 'multipart/form-data')
+    var url = 'https://api.trello.com/1/cards'
+    var options = {"method": "post",
+                   "oAuthServiceName": "trello",
+                   "oAuthUseToken": "always",
+                   "payload": payload};
+    
+    UrlFetchApp.fetch(url, options);
+  }
